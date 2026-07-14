@@ -22,10 +22,17 @@ plist — onto a single boolean: **is a stream currently active?**
 
 FINDINGS (fill in during Phase 0)
 ---------------------------------
-- Which service updates first/most reliably (_raop vs _airplay): TBD
-- TXT field + value/bit meaning idle vs streaming:               TBD
-- /info statusFlags field + encoding:                            TBD
-- Do TXT and /info agree? any lag between them?                  TBD
+- Device under test: AirPort Express gen 2, model AirPort10,115,
+  fv=p20.78100.3, hostname Theatre-AirPort-Express.local, mDNS name "Court yard"
+- Field NAME confirmed: _airplay._tcp has NO ``sf=`` key on this firmware —
+  use ``flags=`` instead. _raop._tcp does use ``sf=``. Both read 0x4 while idle.
+- Which service updates first/most reliably (_raop vs _airplay): TBD (need
+  streaming transition, not just idle snapshot)
+- TXT bit meaning idle vs streaming:                              TBD — idle
+  value is 0x4 for both flags/sf; need the streaming value to find the bit
+- /info statusFlags field + encoding:                             also 0x4
+  idle, same value as TXT flags/sf — encoding likely shared
+- Do TXT and /info agree? any lag between them?                   TBD
 """
 
 from __future__ import annotations
@@ -84,8 +91,16 @@ def _parse_int(value: str | None) -> int | None:
 
 
 def from_airplay_txt(txt: dict[bytes | str, bytes | str | None]) -> Observation:
-    """Decide activity from an ``_airplay._tcp`` TXT record's ``sf`` field."""
-    raw = _txt_to_str(txt.get("sf") or txt.get(b"sf"))
+    """Decide activity from an ``_airplay._tcp`` TXT record's status-flags field.
+
+    CONFIRMED (Phase 0, gen-2 Express, firmware p20.78100.3): this hardware's
+    ``_airplay._tcp`` record has NO ``sf=`` key — the brief's assumption was for
+    a different generation/firmware. The equivalent field here is ``flags=``.
+    Both idle values observed so far: ``flags=0x4`` (_airplay) and ``sf=0x4``
+    (_raop) — same value, different key name. Kept the ``sf`` lookup as a
+    fallback in case other firmware versions do use it.
+    """
+    raw = _txt_to_str(txt.get("flags") or txt.get(b"flags") or txt.get("sf") or txt.get(b"sf"))
     flags = _parse_int(raw)
     if flags is None:
         return Observation("airplay", None, raw or "")

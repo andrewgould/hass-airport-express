@@ -58,7 +58,7 @@ class Logger:
         self._name = want_name
         self._ip = want_ip
 
-    def on_change(self, zc: Zeroconf, service_type: str, name: str,
+    def on_change(self, zeroconf: Zeroconf, service_type: str, name: str,
                   state_change: ServiceStateChange) -> None:
         if not matches(name, self._name):
             return
