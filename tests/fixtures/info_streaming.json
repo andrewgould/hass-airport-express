@@ -1,0 +1,7 @@
+{
+  "_comment": "Captured 2026-07-14T18:05:07.602 from GET http://192.168.1.137:7000/info, ~15s into an active AirPlay stream. statusFlags=2052 (0x804) vs idle's 4 (0x4).",
+  "statusFlags": 2052,
+  "name": "Court yard",
+  "model": "AirPort10,115",
+  "features": 496155768982016
+}

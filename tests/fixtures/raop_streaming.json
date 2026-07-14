@@ -1,0 +1,15 @@
+{
+  "_comment": "Captured 2026-07-14T18:05:05.964 from the same Express, ~15s into an active AirPlay stream, ~99ms after the _airplay TXT update. sf=0x804 vs idle's 0x4.",
+  "am": "AirPort10,115",
+  "cn": "0,1",
+  "da": "true",
+  "et": "0,4",
+  "ft": "0x445D0A00,0x1C340",
+  "fv": "p20.78100.3",
+  "md": "2",
+  "pk": "b1a2be75760e40a633b78bdbf46a09851a93ede371ea79d62c7d03fc7b1afdfd",
+  "sf": "0x804",
+  "tp": "UDP",
+  "vn": "65537",
+  "vs": "366.0"
+}

@@ -5,52 +5,49 @@ of its ``_raop._tcp`` / ``_airplay._tcp`` services, and the ``/info`` binary
 plist — onto a single boolean: **is a stream currently active?**
 
 ╔══════════════════════════════════════════════════════════════════════════════╗
-║  PHASE 0 — NOT YET VALIDATED AGAINST REAL HARDWARE                            ║
+║  PHASE 0 — CONFIRMED against real hardware (2026-07-14)                      ║
 ║                                                                              ║
-║  The exact field/bit that reliably indicates "streaming active" on gen-2     ║
-║  firmware has NOT been confirmed. The logic below encodes the *hypothesis*   ║
-║  from the project brief and MUST be corrected once scripts/phase0_diagnostic ║
-║  has captured real start/stop transitions. Until then this returns best-     ║
-║  effort guesses and the sensor should not be trusted.                        ║
-║                                                                              ║
-║  When Phase 0 is done:                                                        ║
-║    1. Replace the heuristics below with the confirmed field/bit.             ║
-║    2. Drop captured fixtures into tests/fixtures/ and assert on them in      ║
-║       tests/test_state.py.                                                   ║
-║    3. Document the finding in the FINDINGS block just below.                 ║
+║  Streaming sets bit 0x800 on top of the idle baseline (0x4 -> 0x804) on ALL  ║
+║  three sources (_airplay flags=, _raop sf=, /info statusFlags), in lockstep. ║
+║  See FINDINGS below for the captured transitions this is based on.           ║
 ╚══════════════════════════════════════════════════════════════════════════════╝
 
-FINDINGS (fill in during Phase 0)
----------------------------------
+FINDINGS
+--------
 - Device under test: AirPort Express gen 2, model AirPort10,115,
   fv=p20.78100.3, hostname Theatre-AirPort-Express.local, mDNS name "Court yard"
-- Field NAME confirmed: _airplay._tcp has NO ``sf=`` key on this firmware —
-  use ``flags=`` instead. _raop._tcp does use ``sf=``. Both read 0x4 while idle.
-- Which service updates first/most reliably (_raop vs _airplay): TBD (need
-  streaming transition, not just idle snapshot)
-- TXT bit meaning idle vs streaming:                              TBD — idle
-  value is 0x4 for both flags/sf; need the streaming value to find the bit
-- /info statusFlags field + encoding:                             also 0x4
-  idle, same value as TXT flags/sf — encoding likely shared
-- Do TXT and /info agree? any lag between them?                   TBD
+- Field NAME: _airplay._tcp has NO ``sf=`` key on this firmware (contrary to
+  the project brief's assumption, likely written for different firmware) —
+  the equivalent field here is ``flags=``. _raop._tcp does use ``sf=``.
+- Bit confirmed: idle = 0x4 on all three sources. Streaming = 0x804 = 0x4 |
+  0x800 on all three sources, simultaneously (same encoding shared across
+  _airplay flags=, _raop sf=, and /info statusFlags). Captured over one full
+  start->stop cycle; see tests/fixtures/ for the raw records.
+- Which service updates first: _airplay leads _raop by ~100ms consistently,
+  on both the start transition (99ms) and the stop transition (101ms).
+  _airplay is the primary signal; _raop is a close, reliable cross-check.
+  /info is only as fresh as its poll interval (used as the self-healing
+  fallback, not the primary path).
+- Cross-source agreement: mostly yes, but NOT always instantaneous — during
+  the capture, a single /info poll read statusFlags=4 (idle) for one sample
+  while _airplay/_raop still (or again) reported 0x804, immediately followed
+  by a session renegotiation (new gid) and a return to 0x804. This coincided
+  with a pause/resume action and validates combine()'s "any source active
+  wins" rule: a lone contradicting inactive reading did not need to flap the
+  sensor off, because at least one source still said active.
+- Play vs pause: NOT distinguishable — both produced identical 0x804. Confirms
+  the brief's non-goal (no play/pause distinction) is a hardware limit, not a
+  missed feature.
 """
 
 from __future__ import annotations
 
 from dataclasses import dataclass
 
-# --- Hypothesised bit layout (UNCONFIRMED — see Phase 0 banner above) ---------
-#
-# On _airplay._tcp the ``sf=`` (status flags) TXT value is a hex/int bitfield.
-# Community reports for various AirPlay receivers associate a low bit with
-# "device in use / audio cable attached / stream active", but the exact bit on
-# gen-2 Express firmware is unverified. We keep the mask as a named constant so
-# Phase 0 only has to change one number.
-AIRPLAY_SF_IN_USE_BIT = 0x800  # PLACEHOLDER — confirm empirically
-
-# On _raop._tcp there is no universally-documented equivalent; the presence /
-# absence of the advertisement, or a flags digit, may be the tell. Left as a
-# hook for Phase 0.
+# Confirmed empirically (see FINDINGS above): streaming sets this bit on top of
+# the idle baseline, identically across _airplay flags=, _raop sf=, and /info
+# statusFlags=.
+AIRPLAY_SF_IN_USE_BIT = 0x800
 
 
 @dataclass(frozen=True)
@@ -93,12 +90,8 @@ def _parse_int(value: str | None) -> int | None:
 def from_airplay_txt(txt: dict[bytes | str, bytes | str | None]) -> Observation:
     """Decide activity from an ``_airplay._tcp`` TXT record's status-flags field.
 
-    CONFIRMED (Phase 0, gen-2 Express, firmware p20.78100.3): this hardware's
-    ``_airplay._tcp`` record has NO ``sf=`` key — the brief's assumption was for
-    a different generation/firmware. The equivalent field here is ``flags=``.
-    Both idle values observed so far: ``flags=0x4`` (_airplay) and ``sf=0x4``
-    (_raop) — same value, different key name. Kept the ``sf`` lookup as a
-    fallback in case other firmware versions do use it.
+    Reads ``flags=`` (the field this hardware actually sends) falling back to
+    ``sf=`` for firmware variants that use the brief's originally-assumed name.
     """
     raw = _txt_to_str(txt.get("flags") or txt.get(b"flags") or txt.get("sf") or txt.get(b"sf"))
     flags = _parse_int(raw)
@@ -109,27 +102,32 @@ def from_airplay_txt(txt: dict[bytes | str, bytes | str | None]) -> Observation:
 
 
 def from_raop_txt(txt: dict[bytes | str, bytes | str | None]) -> Observation:
-    """Decide activity from a ``_raop._tcp`` TXT record.
+    """Decide activity from a ``_raop._tcp`` TXT record's ``sf=`` field.
 
-    PLACEHOLDER: no confirmed field yet. Returns None (no information) so it
-    never overrides the _airplay signal until Phase 0 tells us what to read.
+    Lags _airplay's flags= by ~100ms in captures, but uses the identical bit
+    encoding — good as a fast cross-check, not as the primary source.
     """
-    # Keep the raw record around so the diagnostic script / logs can show it.
-    raw = ",".join(
-        f"{_txt_to_str(k)}={_txt_to_str(v)}" for k, v in txt.items()
-    )
-    return Observation("raop", None, raw)
+    raw = _txt_to_str(txt.get("sf") or txt.get(b"sf"))
+    flags = _parse_int(raw)
+    if flags is None:
+        return Observation("raop", None, raw or "")
+    active = bool(flags & AIRPLAY_SF_IN_USE_BIT)
+    return Observation("raop", active, raw or "")
 
 
 def from_info_plist(info: dict) -> Observation:
-    """Decide activity from the ``/info`` binary-plist ``statusFlags`` field."""
+    """Decide activity from the ``/info`` binary-plist ``statusFlags`` field.
+
+    Same bit encoding as the mDNS TXT fields, confirmed by capture. Only as
+    fresh as the poll interval, so treat as a fallback cross-check.
+    """
     raw = info.get("statusFlags")
     if raw is None:
         return Observation("info", None, "")
     flags = _parse_int(str(raw))
     if flags is None:
         return Observation("info", None, str(raw))
-    active = bool(flags & AIRPLAY_SF_IN_USE_BIT)  # PLACEHOLDER — may differ from mDNS
+    active = bool(flags & AIRPLAY_SF_IN_USE_BIT)
     return Observation("info", active, str(raw))
 
 

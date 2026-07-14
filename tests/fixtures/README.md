@@ -1,14 +1,18 @@
 # Test fixtures
 
-Captured during **Phase 0** from real AirPort Express hardware. Drop the raw TXT
-records and `/info` plist dumps here (idle vs streaming) so the decision-function
-tests in `../test_state.py` can assert against real data instead of guesses.
+Captured 2026-07-14 during **Phase 0** from a real AirPort Express gen 2
+(model AirPort10,115, fv=p20.78100.3), during one full idle -> streaming ->
+idle cycle. See the FINDINGS block in `../../src/hass_airport_express/state.py`
+for the full writeup.
 
-Suggested files (create during Phase 0):
+- `airplay_idle.json` / `airplay_streaming.json` — `_airplay._tcp` TXT record
+  (`flags=0x4` idle, `flags=0x804` streaming)
+- `raop_idle.json` / `raop_streaming.json` — `_raop._tcp` TXT record
+  (`sf=0x4` idle, `sf=0x804` streaming)
+- `info_idle.json` / `info_streaming.json` — `/info` plist, trimmed to the
+  fields the decision function reads (`statusFlags=4` idle, `=2052` streaming)
 
-- `airplay_idle.json` — `_airplay._tcp` TXT record while idle
-- `airplay_streaming.json` — `_airplay._tcp` TXT record while a stream is active
-- `raop_idle.json` / `raop_streaming.json` — same for `_raop._tcp`
-- `info_idle.plist` / `info_streaming.plist` — raw `/info` bodies
-
-Keep them small and anonymised (strip any MAC/serial you'd rather not publish).
+If you capture from another device/firmware and it disagrees with these
+values, add new fixtures rather than replacing these — firmware variance is
+exactly what the fallback field lookups in `state.py` (`flags=` / `sf=`) exist
+to handle.

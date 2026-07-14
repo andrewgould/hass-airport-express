@@ -1,18 +1,24 @@
 """Unit tests for the decision + debounce logic.
 
-The TXT/plist-field assertions are marked xfail until Phase 0 confirms the real
-field/bit — they document the *shape* of what we'll assert and will be filled in
-with captured fixtures. The debounce/hysteresis tests are real now: that logic is
-hardware-independent and must be correct regardless of Phase 0.
+The field-decode tests load real fixtures captured from a physical AirPort
+Express gen 2 during Phase 0 (see tests/fixtures/ and the FINDINGS block in
+state.py). The debounce/hysteresis tests are hardware-independent.
 """
 
 from __future__ import annotations
 
-import pytest
+import json
+from pathlib import Path
 
 from hass_airport_express import state
 from hass_airport_express.config import DeviceConfig
 from hass_airport_express.monitor import Debouncer
+
+FIXTURES = Path(__file__).parent / "fixtures"
+
+
+def _load(name: str) -> dict:
+    return json.loads((FIXTURES / name).read_text())
 
 
 # --- combine() ---------------------------------------------------------------
@@ -89,17 +95,37 @@ def test_debounce_brief_blip_does_not_flap():
     assert d.observe(False) is False    # cleared to a definite off (first report)
 
 
-# --- Field decoding: filled in once Phase 0 lands ----------------------------
-@pytest.mark.xfail(reason="Phase 0 not complete: real sf bit/value unconfirmed")
-def test_airplay_sf_streaming_detected_from_fixture():
-    # TODO(phase0): load tests/fixtures/airplay_streaming.txt and assert True,
-    # tests/fixtures/airplay_idle.txt and assert False, once captured.
-    streaming = {"sf": "0x804"}
-    idle = {"sf": "0x4"}
-    assert state.from_airplay_txt(streaming).active is True
-    assert state.from_airplay_txt(idle).active is False
+# --- Field decoding: fixtures captured from real hardware in Phase 0 ---------
+def test_airplay_flags_idle_fixture():
+    assert state.from_airplay_txt(_load("airplay_idle.json")).active is False
+
+
+def test_airplay_flags_streaming_fixture():
+    assert state.from_airplay_txt(_load("airplay_streaming.json")).active is True
+
+
+def test_raop_sf_idle_fixture():
+    assert state.from_raop_txt(_load("raop_idle.json")).active is False
+
+
+def test_raop_sf_streaming_fixture():
+    assert state.from_raop_txt(_load("raop_streaming.json")).active is True
+
+
+def test_info_statusflags_idle_fixture():
+    assert state.from_info_plist(_load("info_idle.json")).active is False
+
+
+def test_info_statusflags_streaming_fixture():
+    assert state.from_info_plist(_load("info_streaming.json")).active is True
+
+
+def test_airplay_sf_fallback_field_name():
+    """Some firmware may use sf= instead of flags= on _airplay -- support both."""
+    assert state.from_airplay_txt({"sf": "0x804"}).active is True
+    assert state.from_airplay_txt({"sf": "0x4"}).active is False
 
 
 def test_airplay_sf_unparseable_is_no_information():
-    assert state.from_airplay_txt({"sf": "garbage"}).active is None
+    assert state.from_airplay_txt({"flags": "garbage"}).active is None
     assert state.from_airplay_txt({}).active is None

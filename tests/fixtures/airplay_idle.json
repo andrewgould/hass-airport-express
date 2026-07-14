@@ -1,0 +1,18 @@
+{
+  "_comment": "Captured 2026-07-14T18:04:49 from a real AirPort Express gen 2 (model AirPort10,115, fv=p20.78100.3), idle, no AirPlay stream active.",
+  "acl": "0",
+  "deviceid": "48:A1:95:E5:03:9A",
+  "features": "0x445D0A00,0x1C340",
+  "flags": "0x4",
+  "fv": "p20.78100.3",
+  "gcgl": "0",
+  "gid": "f1441e3c-bd99-4e67-bf88-65320649e403",
+  "manufacturer": "Apple Inc.",
+  "model": "AirPort10,115",
+  "pi": "f1441e3c-bd99-4e67-bf88-65320649e403",
+  "pk": "b1a2be75760e40a633b78bdbf46a09851a93ede371ea79d62c7d03fc7b1afdfd",
+  "protovers": "1.1",
+  "rsf": "0x0",
+  "serialNumber": "C86TC2GHDV2R",
+  "srcvers": "366.0"
+}

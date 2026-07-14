@@ -62,12 +62,14 @@ Docker container, auto-discovered by HA, and resilient to broker/HA/Express rest
 
 ## Status
 
-🚧 **Early / pre-Phase-0.** The decision function that maps TXT/plist fields → active/inactive is a
-**placeholder** until validated against real gen-2 hardware. See the
-[project issues](../../issues) for phase tracking. Do not expect a correct sensor until Phase 0 is
-done and `src/hass_airport_express/state.py` is updated with the empirical finding.
+✅ **Phase 0 complete.** Confirmed against a real gen-2 Express (model AirPort10,115): streaming
+sets bit `0x800` on top of the idle baseline (`0x4` → `0x804`) across `_airplay` `flags=`, `_raop`
+`sf=`, and `/info` `statusFlags=` alike. See the FINDINGS block in
+[`state.py`](src/hass_airport_express/state.py) and [`tests/fixtures/`](tests/fixtures/) for the
+captured data. Remaining work is Phase 1 end-to-end validation and deployment — see the
+[project issues](../../issues).
 
-## Quick start (once Phase 0 is complete)
+## Quick start
 
 ```bash
 cp config.example.yaml config.yaml     # edit device + MQTT details
