@@ -1,0 +1,48 @@
+# Example deployment for the QNAP + Docker Compose stack.
+#
+# ⚠️  mDNS / multicast + Docker networking
+# ----------------------------------------
+# mDNS multicast does NOT traverse Docker's default bridge cleanly, so discovery
+# will silently see nothing. Pick ONE of the two options below.
+#
+# Option A — host networking (simplest; container shares the host's LAN stack):
+#   works well on Linux hosts. Uncomment `network_mode: host` and delete the
+#   `networks:` block. Note: host mode ignores published ports.
+#
+# Option B — macvlan (gives the container its own LAN IP; matches other IoT
+#   containers in this stack). Reuse the existing macvlan network rather than
+#   creating a new one, and give the container a static address via a DHCP
+#   reservation or `ipv4_address`. Double-check the DHCP/macvlan gotchas already
+#   hit in this environment before assuming it "just works".
+
+services:
+  airport-express-monitor:
+    build: .
+    # image: ghcr.io/andrewgould/hass-airport-express:latest   # once published
+    container_name: airport-express-monitor
+    restart: unless-stopped
+
+    # --- Option A: host networking -----------------------------------------
+    # network_mode: host
+
+    # --- Option B: existing macvlan ----------------------------------------
+    networks:
+      iot_macvlan:
+        ipv4_address: 192.168.1.60      # a free address in the macvlan range
+
+    environment:
+      MQTT_HOST: 192.168.1.10
+      MQTT_PORT: "1883"
+      MQTT_USERNAME: airport-express
+      MQTT_PASSWORD: change-me
+      LOG_LEVEL: INFO
+      LOG_FORMAT: json
+    volumes:
+      - ./config.yaml:/app/config.yaml:ro
+
+# Reference an EXISTING external macvlan (recommended) instead of defining a new
+# one. Set external: true and use the real network name from `docker network ls`.
+networks:
+  iot_macvlan:
+    external: true
+    name: iot_macvlan

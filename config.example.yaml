@@ -1,0 +1,42 @@
+# hass-airport-express — example configuration
+#
+# Copy to config.yaml and edit. config.yaml is gitignored so your broker
+# credentials never get committed. Every value can also be supplied via an
+# environment variable (shown in [brackets]); env vars win over the file, which
+# is handy for docker-compose.
+
+# ─────────────────────────────────────────────────────────────────────────────
+# MQTT broker — reuse whatever broker your existing Home Assistant already uses.
+# ─────────────────────────────────────────────────────────────────────────────
+mqtt:
+  host: 192.168.1.10           # [MQTT_HOST]
+  port: 1883                   # [MQTT_PORT]
+  username: airport-express    # [MQTT_USERNAME]
+  password: change-me          # [MQTT_PASSWORD]
+  # Base topic prefixes. Discovery prefix must match HA's setting (default below).
+  discovery_prefix: homeassistant   # [MQTT_DISCOVERY_PREFIX]
+  base_topic: airport-express       # [MQTT_BASE_TOPIC]
+  client_id: hass-airport-express   # [MQTT_CLIENT_ID]
+
+# ─────────────────────────────────────────────────────────────────────────────
+# Devices — a LIST from the start, so one container can watch several Expresses.
+# Start with one; add more later without changing the deployment.
+# ─────────────────────────────────────────────────────────────────────────────
+devices:
+  - name: Living Room Express       # human-friendly; used in entity name
+    id: living_room_express         # stable slug; used in topics + unique_id
+    # Identify the device by ONE of: mDNS instance name (preferred, survives DHCP
+    # changes) or a static IP. The IP is required for the /info fallback poll.
+    mdns_name: null                 # e.g. "Living Room" as it appears in _airplay._tcp; null = match by IP
+    ip: 192.168.1.42                # required for /info fallback; recommend a DHCP reservation
+    # Debounce / hysteresis (see README). Prevents flapping on handshake blips.
+    off_delay_seconds: 20           # how long inactive must persist before reporting OFF
+    confirm_observations: 2         # consecutive observations required to flip state
+
+# ─────────────────────────────────────────────────────────────────────────────
+# Behaviour
+# ─────────────────────────────────────────────────────────────────────────────
+options:
+  info_poll_seconds: 45         # [INFO_POLL_SECONDS] fallback /info cross-check interval (30–60 recommended)
+  log_level: INFO               # [LOG_LEVEL] DEBUG | INFO | WARNING | ERROR
+  log_format: json              # [LOG_FORMAT] json | text  (json = structured)

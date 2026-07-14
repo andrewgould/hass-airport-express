@@ -1,0 +1,55 @@
+[build-system]
+requires = ["setuptools>=68", "wheel"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "hass-airport-express"
+version = "0.0.1"
+description = "AirPlay activity monitor for an AirPort Express (gen 2), bridged to Home Assistant over MQTT"
+readme = "README.md"
+requires-python = ">=3.11"
+license = { file = "LICENSE" }
+authors = [{ name = "Andrew Gould" }]
+keywords = ["homeassistant", "airplay", "airport-express", "raop", "mqtt", "mdns", "zeroconf"]
+
+dependencies = [
+    "zeroconf>=0.132",
+    "paho-mqtt>=2.1",
+    "aiohttp>=3.9",       # async fetch of the /info endpoint
+    "PyYAML>=6.0",
+]
+
+[project.optional-dependencies]
+dev = [
+    "pytest>=8.0",
+    "pytest-asyncio>=0.23",
+    "ruff>=0.5",
+    "mypy>=1.10",
+]
+
+[project.scripts]
+hass-airport-express = "hass_airport_express.__main__:main"
+
+[project.urls]
+Homepage = "https://github.com/andrewgould/hass-airport-express"
+Issues = "https://github.com/andrewgould/hass-airport-express/issues"
+
+[tool.setuptools.packages.find]
+where = ["src"]
+
+[tool.pytest.ini_options]
+asyncio_mode = "auto"
+testpaths = ["tests"]
+
+[tool.ruff]
+line-length = 100
+target-version = "py311"
+
+[tool.ruff.lint]
+select = ["E", "F", "I", "UP", "B", "ASYNC"]
+
+[tool.mypy]
+python_version = "3.11"
+warn_unused_ignores = true
+warn_redundant_casts = true
+ignore_missing_imports = true
