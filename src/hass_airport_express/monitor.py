@@ -102,11 +102,12 @@ class DeviceMonitor:
         device: DeviceConfig,
         info_poll_seconds: int,
         on_state: StateCallback,
+        monotonic: Callable[[], float] = time.monotonic,
     ) -> None:
         self._device = device
         self._info_poll_seconds = info_poll_seconds
         self._on_state = on_state
-        self._debouncer = Debouncer(device)
+        self._debouncer = Debouncer(device, monotonic=monotonic)
         self._latest: dict[str, state.Observation] = {}
         self._lock = asyncio.Lock()
         self._browser: AsyncServiceBrowser | None = None
@@ -198,17 +199,33 @@ class DeviceMonitor:
     async def _record(self, obs: state.Observation) -> None:
         async with self._lock:
             self._latest[obs.source] = obs
-            combined = state.combine(list(self._latest.values()))
-            changed = self._debouncer.observe(combined)
-            if changed is not None:
-                self._on_state(self._device, changed)
+            await self._reevaluate_locked()
+
+    async def _reevaluate_locked(self) -> None:
+        """Re-derive the combined state from cached per-source observations and
+        feed it to the debouncer. Must be called with self._lock held.
+
+        mDNS TXT updates are edge-triggered -- a source that's still actively
+        streaming won't emit a new event while its value stays unchanged. Feeding
+        the debouncer a live re-derivation (rather than a bare "no information")
+        on every tick means a still-true cached observation keeps refreshing the
+        off-delay clock, instead of the off-delay expiring mid-stream just
+        because nothing NEW happened to arrive in the last off_delay_seconds.
+        """
+        combined = state.combine(list(self._latest.values()))
+        changed = self._debouncer.observe(combined)
+        if changed is not None:
+            self._on_state(self._device, changed)
 
     async def tick_debouncer(self) -> None:
-        """Periodically feed the debouncer so off-delay fires even with no new
-        events (e.g. the Express went silent). Cheap; run alongside poll_loop."""
+        """Periodically re-affirm state from cached observations. Cheap; run
+        alongside poll_loop. Self-heals off-delay expiry (see _reevaluate_locked)
+        and clears state once the Express genuinely goes silent (no cached
+        observation refreshes as active for longer than off_delay_seconds)."""
         while True:
             await asyncio.sleep(1)
-            async with self._lock:
-                changed = self._debouncer.observe(None)
-                if changed is not None:
-                    self._on_state(self._device, changed)
+            await self._tick_once()
+
+    async def _tick_once(self) -> None:
+        async with self._lock:
+            await self._reevaluate_locked()
