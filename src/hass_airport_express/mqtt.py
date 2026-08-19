@@ -63,7 +63,10 @@ class MqttPublisher:
     def publish_discovery(self, device: DeviceConfig) -> None:
         """Announce the binary_sensor so HA creates it automatically."""
         payload = {
-            "name": device.name,
+            # Entity name, not device name: Home Assistant composes the two, so
+            # this reads as "Court yard AirPlay active" rather than the device
+            # name twice over.
+            "name": "AirPlay active",
             "unique_id": f"airport_express_{device.id}",
             "state_topic": self.state_topic(device),
             "payload_on": PAYLOAD_ON,
