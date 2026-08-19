@@ -72,8 +72,8 @@ async def test_raw_flags_are_exposed_for_diagnosis(hass, stub_monitor):
     entry = await _setup(hass)
     runtime = hass.data[DOMAIN][entry.entry_id]
     runtime.monitor._latest = {
-        "airplay": state.Observation("airplay", True, "0x804"),
-        "info": state.Observation("info", None, ""),
+        "airplay": (state.Observation("airplay", True, "0x804"), 0.0),
+        "info": (state.Observation("info", None, ""), 0.0),
     }
     runtime._handle_state(runtime.device, True)
     await hass.async_block_till_done()

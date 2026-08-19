@@ -89,3 +89,54 @@ def test_tick_still_clears_after_genuine_stop():
         return events
 
     assert asyncio.run(_run()) == [True, False]
+
+
+async def test_a_stale_active_mdns_reading_cannot_pin_the_sensor_on():
+    """The bug this was written for, seen in production 2026-08-19.
+
+    mDNS TXT updates are edge-triggered. Miss the packet announcing the end of
+    a stream and the cached reading stays ACTIVE; combine()'s "any source
+    active wins" rule then honours it indefinitely, and the /info cross-check
+    that correctly reads idle can never overrule it. The sensor -- and the
+    amplifier it switches -- stayed on until the integration was reloaded.
+    """
+    clock = FakeClock()
+    device = DeviceConfig(name="Court yard", id="court_yard", ip="192.168.1.137",
+                          off_delay_seconds=10, confirm_observations=1)
+    reported: list[bool] = []
+    monitor = DeviceMonitor(
+        device=device, info_poll_seconds=45,
+        on_state=lambda dev, active: reported.append(active), monotonic=clock,
+    )
+
+    # Streaming: mDNS says so, and the sensor turns on.
+    await monitor._record(state.Observation("airplay", True, "0x804"))
+    assert reported == [True]
+
+    # The stream ends, but that mDNS update never arrives. Only /info notices.
+    clock.advance(60)
+    await monitor._record(state.Observation("info", False, "4"))
+    clock.advance(60)
+    await monitor._tick_once()
+
+    assert reported == [True, False], "stale mDNS reading should have aged out"
+
+
+async def test_a_refreshed_active_reading_keeps_the_sensor_on():
+    """The other half: a source that keeps confirming must never age out."""
+    clock = FakeClock()
+    device = DeviceConfig(name="Court yard", id="court_yard", ip="192.168.1.137",
+                          off_delay_seconds=10, confirm_observations=1)
+    reported: list[bool] = []
+    monitor = DeviceMonitor(
+        device=device, info_poll_seconds=45,
+        on_state=lambda dev, active: reported.append(active), monotonic=clock,
+    )
+
+    await monitor._record(state.Observation("airplay", True, "0x804"))
+    for _ in range(6):                      # 4.5 minutes of steady streaming
+        clock.advance(45)
+        await monitor._record(state.Observation("info", True, "2052"))
+        await monitor._tick_once()
+
+    assert reported == [True]

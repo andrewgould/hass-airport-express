@@ -109,8 +109,16 @@ class DeviceMonitor:
         self._info_poll_seconds = info_poll_seconds
         self._on_state = on_state
         self._session = session
+        self._now = monotonic
         self._debouncer = Debouncer(device, monotonic=monotonic)
-        self._latest: dict[str, state.Observation] = {}
+        # source -> (observation, monotonic time it arrived). The timestamp is
+        # the fix for a real failure: mDNS TXT updates are edge-triggered, so a
+        # missed "stream stopped" packet leaves a cached ACTIVE reading that
+        # combine()'s "any source active wins" rule will honour forever. That
+        # pinned the sensor on -- and the amplifier it drives -- until the
+        # integration was reloaded by hand.
+        self._latest: dict[str, tuple[state.Observation, float]] = {}
+        self._known_services: set[tuple[str, str]] = set()
         self._lock = asyncio.Lock()
         self._browser: AsyncServiceBrowser | None = None
         self._azc: AsyncZeroconf | None = None
@@ -118,7 +126,17 @@ class DeviceMonitor:
     @property
     def latest(self) -> dict[str, state.Observation]:
         """Most recent reading per source, for entity attributes/diagnostics."""
-        return dict(self._latest)
+        return {source: obs for source, (obs, _at) in self._latest.items()}
+
+    @property
+    def _observation_ttl(self) -> float:
+        """How long a reading may be trusted.
+
+        Comfortably longer than the poll interval that refreshes it, so a
+        healthy source is never discarded; short enough that a stale one can't
+        outlive a couple of cross-checks.
+        """
+        return max(self._info_poll_seconds * 2.5, 60.0)
 
     # --- public API ----------------------------------------------------------
     async def start(self, azc: AsyncZeroconf) -> None:
@@ -131,13 +149,27 @@ class DeviceMonitor:
         log.info("watching mDNS for device %s", self._device.id)
 
     async def poll_loop(self) -> None:
-        """Fallback /info cross-check. Self-heals missed multicast events."""
+        """Cross-check both sources on a timer, so neither can go stale unseen.
+
+        Re-querying mDNS matters as much as polling /info: a multicast update
+        announcing the end of a stream can simply not arrive, and without an
+        active re-query nothing would ever correct the cached value.
+        """
         while True:
             try:
-                await self._poll_info_once()
+                await self._refresh_mdns()
             except Exception:  # noqa: BLE001 - never let the poll loop die
+                log.exception("mDNS refresh failed for %s", self._device.id)
+            try:
+                await self._poll_info_once()
+            except Exception:  # noqa: BLE001
                 log.exception("info poll failed for %s", self._device.id)
             await asyncio.sleep(self._info_poll_seconds)
+
+    async def _refresh_mdns(self) -> None:
+        """Actively re-resolve the service instances we've already seen."""
+        for service_type, name in list(self._known_services):
+            await self._resolve_and_record(service_type, name)
 
     async def close(self) -> None:
         if self._browser is not None:
@@ -178,6 +210,7 @@ class DeviceMonitor:
             addrs = {addr for addr in info.parsed_addresses()}
             if self._device.ip not in addrs:
                 return
+        self._known_services.add((service_type, name))
         txt = info.decoded_properties if hasattr(info, "decoded_properties") else info.properties
         obs = (
             state.from_airplay_txt(txt)
@@ -209,7 +242,7 @@ class DeviceMonitor:
     # --- fan-in --------------------------------------------------------------
     async def _record(self, obs: state.Observation) -> None:
         async with self._lock:
-            self._latest[obs.source] = obs
+            self._latest[obs.source] = (obs, self._now())
             await self._reevaluate_locked()
 
     async def _reevaluate_locked(self) -> None:
@@ -223,7 +256,9 @@ class DeviceMonitor:
         off-delay clock, instead of the off-delay expiring mid-stream just
         because nothing NEW happened to arrive in the last off_delay_seconds.
         """
-        combined = state.combine(list(self._latest.values()))
+        cutoff = self._now() - self._observation_ttl
+        fresh = [obs for obs, at in self._latest.values() if at >= cutoff]
+        combined = state.combine(fresh)
         changed = self._debouncer.observe(combined)
         if changed is not None:
             self._on_state(self._device, changed)
