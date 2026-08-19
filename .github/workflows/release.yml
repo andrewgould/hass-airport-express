@@ -1,0 +1,46 @@
+name: Release
+
+on:
+  push:
+    tags: ["v*"]
+
+permissions:
+  contents: write
+
+jobs:
+  release:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Check the tag matches manifest.json
+        run: |
+          tag="${GITHUB_REF_NAME#v}"
+          manifest=$(jq -r .version custom_components/airport_express/manifest.json)
+          if [ "$tag" != "$manifest" ]; then
+            echo "::error::Tag $GITHUB_REF_NAME says $tag but manifest.json says $manifest."
+            exit 1
+          fi
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.13"
+          cache: pip
+
+      - name: Run the tests before publishing anything
+        run: |
+          pip install -r requirements_test.txt
+          pytest -q
+
+      # HACS installs this asset; the integration's files must be at the zip root.
+      - name: Build the HACS zip
+        run: |
+          cd custom_components/airport_express
+          zip -r "$GITHUB_WORKSPACE/airport_express.zip" . -x '*.pyc' -x '__pycache__/*'
+
+      - name: Publish the release
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          gh release create "$GITHUB_REF_NAME" --title "$GITHUB_REF_NAME" \
+            --generate-notes airport_express.zip

@@ -19,7 +19,7 @@ from zeroconf import ServiceStateChange, Zeroconf
 from zeroconf.asyncio import AsyncServiceBrowser, AsyncServiceInfo, AsyncZeroconf
 
 from . import state
-from .config import DeviceConfig
+from .models import DeviceConfig
 
 log = logging.getLogger(__name__)
 
@@ -103,15 +103,22 @@ class DeviceMonitor:
         info_poll_seconds: int,
         on_state: StateCallback,
         monotonic: Callable[[], float] = time.monotonic,
+        session: aiohttp.ClientSession | None = None,
     ) -> None:
         self._device = device
         self._info_poll_seconds = info_poll_seconds
         self._on_state = on_state
+        self._session = session
         self._debouncer = Debouncer(device, monotonic=monotonic)
         self._latest: dict[str, state.Observation] = {}
         self._lock = asyncio.Lock()
         self._browser: AsyncServiceBrowser | None = None
         self._azc: AsyncZeroconf | None = None
+
+    @property
+    def latest(self) -> dict[str, state.Observation]:
+        """Most recent reading per source, for entity attributes/diagnostics."""
+        return dict(self._latest)
 
     # --- public API ----------------------------------------------------------
     async def start(self, azc: AsyncZeroconf) -> None:
@@ -185,9 +192,13 @@ class DeviceMonitor:
             return
         url = f"http://{self._device.ip}:7000/info"
         timeout = aiohttp.ClientTimeout(total=5)
-        async with aiohttp.ClientSession(timeout=timeout) as session:
-            async with session.get(url) as resp:
+        if self._session is not None:
+            async with self._session.get(url, timeout=timeout) as resp:
                 body = await resp.read()
+        else:
+            async with aiohttp.ClientSession(timeout=timeout) as session:
+                async with session.get(url) as resp:
+                    body = await resp.read()
         try:
             info = plistlib.loads(body)
         except Exception:  # noqa: BLE001

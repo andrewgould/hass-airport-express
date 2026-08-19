@@ -38,6 +38,20 @@ FINDINGS
 - Play vs pause: NOT distinguishable — both produced identical 0x804. Confirms
   the brief's non-goal (no play/pause distinction) is a hardware limit, not a
   missed feature.
+
+CONFIRMED AGAIN 2026-08-19, plus one new limit
+----------------------------------------------
+- Re-confirmed end to end from a real Apple sender: 0x4 -> 0x804 on stream
+  start, 0x804 -> 0x4 on stop, with _airplay again leading _raop by ~100ms and
+  /info following within its poll interval. Both edges are sub-second, so any
+  "has it really stopped" delay is a policy choice, not a hardware constraint.
+- THE SENDER MATTERS. Streams originated by pyatv — including Home Assistant's
+  own tts.speak and media_player.play_media aimed at this device — do NOT set
+  the bit. Three separate 20-30s streams, confirmed playing by HA, left
+  statusFlags at 0x4 on all three sources throughout. Only Apple senders set
+  it. Harmless for the use case (the point is to notice a phone or Mac
+  streaming) but it means the integration cannot be self-tested from Home
+  Assistant: a real Apple device has to do the streaming.
 """
 
 from __future__ import annotations

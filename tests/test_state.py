@@ -10,9 +10,9 @@ from __future__ import annotations
 import json
 from pathlib import Path
 
-from hass_airport_express import state
-from hass_airport_express.config import DeviceConfig
-from hass_airport_express.monitor import Debouncer
+from custom_components.airport_express import state
+from custom_components.airport_express.models import DeviceConfig
+from custom_components.airport_express.monitor import Debouncer
 
 FIXTURES = Path(__file__).parent / "fixtures"
 

@@ -16,9 +16,9 @@ from __future__ import annotations
 
 import asyncio
 
-from hass_airport_express import state
-from hass_airport_express.config import DeviceConfig
-from hass_airport_express.monitor import DeviceMonitor
+from custom_components.airport_express import state
+from custom_components.airport_express.models import DeviceConfig
+from custom_components.airport_express.monitor import DeviceMonitor
 
 
 class FakeClock:

@@ -1,107 +1,130 @@
 # hass-airport-express
 
-> AirPlay activity monitor for a 2nd-gen Apple AirPort Express, bridged to Home Assistant over MQTT.
+> Home Assistant custom integration: **is something AirPlaying to this AirPort Express right now?**
 
-A small, always-on service that watches whether an **AirPort Express (gen 2)** currently has an
-AirPlay/RAOP stream active, and publishes that as a `binary_sensor` in Home Assistant via MQTT
-discovery. It gives you a coarse **"is something playing to the Express right now?"** signal for
-automations — nothing more, and by design.
+Adds one `binary_sensor` per AirPort Express (gen 2) that turns **on** within a second of an AirPlay
+stream starting and **off** when it stops. No cloud, no polling of anything but the device itself,
+and nothing to run alongside Home Assistant.
 
 ## Why this exists
 
 An AirPort Express (gen 2) is a plain AirPlay/RAOP receiver. It does **not** speak Apple's MRP
-(Media Remote Protocol) — the protocol Apple TVs and HomePods use to report play state, track
-metadata, position, etc. Home Assistant's Apple TV integration (built on
-[`pyatv`](https://github.com/postlund/pyatv)) can add the Express as a `media_player`, but per
-pyatv's own docs, **play state simply isn't obtainable from a plain AirPlay receiver** — the device
-never transmits it. That's a protocol limitation, not a bug.
+(Media Remote Protocol) — the protocol Apple TVs and HomePods use to report play state. Home
+Assistant's Apple TV integration (built on [`pyatv`](https://github.com/postlund/pyatv)) will happily
+add the Express as a `media_player`, but per pyatv's own docs **play state simply isn't obtainable
+from a plain AirPlay receiver**. In practice that entity sits at `idle` forever, whatever is playing.
 
-What *does* exist is a coarser "a stream is currently active" signal:
+What the hardware *does* expose is a coarser "a stream is currently open" signal, in the status-flags
+field of its mDNS TXT records and its `/info` endpoint. This integration watches those and publishes
+the one boolean that automations actually need.
 
-- AirPlay/RAOP devices advertise via mDNS/Bonjour (`_raop._tcp.local.` and `_airplay._tcp.local.`)
-  and include a status/flags field in their TXT records (`sf=` on `_airplay._tcp`; an equivalent on
-  `_raop._tcp`) that appears to change when a streaming session opens or closes.
-- The same/similar information is exposed via a binary-plist HTTP endpoint at
-  `http://<express-ip>:7000/info` (a `statusFlags` field).
+## What you get
 
-Neither is officially documented for gen-2 hardware, so **confirming what the field means is part of
-the project** (see [Phase 0](#phase-0--reverse-engineering--validation)).
+- **`binary_sensor.<name>_airplay_active`** (`device_class: sound`) — on while a stream is open
+- Raw per-source flag values as attributes (`airplay_flags`, `raop_flags`, `info_flags`), because
+  when the sources disagree you want to see which said what
+- Zeroconf discovery: an Express on the network is offered to you, no YAML
 
-## Scope
+**Non-goals**, all of them hardware limits rather than missing features:
 
-**Goal:** a `binary_sensor` in HA that flips `on` within a few seconds of AirPlay streaming starting
-to the Express, and back `off` within a configurable delay after it stops — running continuously as a
-Docker container, auto-discovered by HA, and resilient to broker/HA/Express restarts.
-
-**Non-goals** (explicitly out of scope):
-
-- Play/pause distinction *within* an active session
+- Play/pause distinction *within* a session — the flag is identical either way
 - Track metadata, artwork, or position
-- Playback control (play/pause/skip/volume)
-- Replacing the Express with different receiver hardware (e.g. Shairport Sync) — this keeps the
-  existing Express in place and just adds visibility
+- Playback control
 
 ## How it works
 
 ```
- AirPort Express ──mDNS TXT (_raop / _airplay)──┐
-       │                                         ├──► decision function ──► debounce ──► MQTT ──► Home Assistant
-       └──HTTP /info (binary plist, fallback)────┘        (Phase 0)        (hysteresis)  (discovery)  binary_sensor
+ AirPort Express ──mDNS TXT (_airplay flags= / _raop sf=)──┐
+       │                                                    ├──► decision fn ──► debounce ──► binary_sensor
+       └──HTTP /info (statusFlags, polled as a cross-check)──┘
 ```
 
-- **Event-driven discovery** via `python-zeroconf`'s `AsyncServiceBrowser`, scoped to the Express's
-  known service name — state changes are picked up as they're announced, not on a poll timer.
-- **Fallback `/info` poll** every 30–60 s as a self-healing cross-check, in case a multicast mDNS
-  event is missed. Uses the *same* decision function as the mDNS path.
-- **Debounce / hysteresis**: a configurable off-delay (and consecutive-observation requirement) so
-  brief AirPlay handshake blips — selecting the device, a volume nudge — don't make automations flap.
-  Modelled on Shairport Sync's `active_state_timeout`.
-- **MQTT**: publishes `ON`/`OFF` to a state topic only on change, an availability topic (LWT) so HA
-  can tell "monitor offline" from "Express idle", and a discovery config so the entity appears
-  automatically (`device_class: sound`).
+- **Event-driven**: shares Home Assistant's own Zeroconf instance and reacts to TXT updates as
+  they're announced — sub-second in practice.
+- **`/info` cross-check** every 45s heals a missed multicast packet, through the *same* decision
+  function as the mDNS path.
+- **Debounce**: a short off-delay so handshake blips don't flap the sensor. Keep it short — see
+  [Timing](#timing).
 
-## Status
+## Confirmed against real hardware
 
-✅ **Phase 0 complete.** Confirmed against a real gen-2 Express (model AirPort10,115): streaming
-sets bit `0x800` on top of the idle baseline (`0x4` → `0x804`) across `_airplay` `flags=`, `_raop`
-`sf=`, and `/info` `statusFlags=` alike. See the FINDINGS block in
-[`state.py`](src/hass_airport_express/state.py) and [`tests/fixtures/`](tests/fixtures/) for the
-captured data. Remaining work is Phase 1 end-to-end validation and deployment — see the
-[project issues](../../issues).
+Phase 0 established the encoding; a second capture on 2026-08-19 confirmed it end to end with a real
+Apple sender:
 
-## Quick start
-
-```bash
-cp config.example.yaml config.yaml     # edit device + MQTT details
-docker compose up -d                    # see docker-compose.example.yml
+```
+t+107.5s  _airplay  flags=0x804   streaming        ← stream starts
+t+107.6s  _raop     sf=0x804                       (+100ms)
+t+108.5s  /info     statusFlags=0x804              (+1s, poll interval)
+t+184.2s  _airplay  flags=0x4     idle             ← stream stops
 ```
 
-> **Networking note:** mDNS multicast generally does **not** traverse Docker's default bridge
-> cleanly. Run with **host networking** or attach to the existing **macvlan** network used for other
-> IoT-adjacent containers. See [`docker-compose.example.yml`](docker-compose.example.yml).
+Idle is `0x4`; streaming sets `0x800` on top of it, identically across all three sources.
+`_airplay` leads `_raop` by ~100ms consistently. Detection and clearing are both sub-second, so all
+of the "has it really stopped" delay is yours to choose.
 
-## Configuration
+> [!IMPORTANT]
+> **The sender matters.** Streams originated by pyatv (including Home Assistant's own
+> `tts.speak` and `media_player.play_media` to the device) do **not** set the bit — three separate
+> attempts left `statusFlags` at `0x4` throughout. Apple senders do. This is fine for the use case
+> (you're streaming from Apple devices) but it means you cannot self-test from Home Assistant: a
+> real iPhone/Mac has to do the streaming.
 
-Config is a **list of devices** from the start (a single container can monitor more than one
-Express). See [`config.example.yaml`](config.example.yaml) for the full annotated schema. Every value
-can also come from environment variables for container-friendly deployment.
+## Timing
+
+Two delays, deliberately in different places:
+
+| Delay | Where | Default | What it's for |
+| --- | --- | --- | --- |
+| Off delay | This integration's options | 10s | Riding out AirPlay handshake blips so the sensor doesn't flap |
+| "Has the music really stopped" | **Your automation's `for:`** | yours | The wait before you act — turning an amplifier off, say |
+
+Keeping the second one in the automation means the sensor stays an honest report of the hardware,
+and the delay you actually care about is visible where you use it rather than buried in a config
+entry. For example:
+
+```yaml
+triggers:
+  - trigger: state
+    entity_id: binary_sensor.court_yard_airplay_active
+    to: "off"
+    for: "00:00:30"
+```
+
+## Installation
+
+**HACS → ⋮ → Custom repositories**, add `https://github.com/andrewgould/hass-airport-express` as an
+**Integration**, download it, and restart Home Assistant. Your Express should then appear under
+**Settings → Devices & services** as a discovered device; if it doesn't, **Add integration →
+AirPort Express** and enter its IP.
+
+Give the Express a DHCP reservation — the `/info` cross-check is addressed by IP.
 
 ## Development
 
 ```bash
 python -m venv .venv && source .venv/bin/activate
-pip install -e ".[dev]"
-pytest                    # unit tests for the decision function (fixture-driven)
-python scripts/phase0_diagnostic.py --help   # the Phase 0 reverse-engineering logger
+pip install -r requirements_test.txt
+pytest -q
 ```
+
+`state.py` and `monitor.py` are deliberately free of Home Assistant imports, so the decision function
+and the debouncer are testable as plain Python with no `hass` fixture. `__init__.py`,
+`config_flow.py` and `binary_sensor.py` are the Home Assistant glue.
+
+## History: this used to be an MQTT sidecar
+
+Until 2026-08-19 this shipped as a standalone Docker service that published to MQTT and let Home
+Assistant discover the sensor from there. That design assumed a broker worth reusing; when the time
+came to deploy, the house's broker turned out not to be running, and the design was carrying a
+container, a broker and Docker-multicast problems to deliver one boolean. Rebuilding it as an
+integration deleted all three. The detection logic — the part the reverse-engineering went into —
+came across unchanged.
 
 ## Prior art
 
 - [`hass-shairport-sync`](https://github.com/parautenbach/hass-shairport-sync) and
   [`johnneerdael/Airplay-2-for-Home-Assistant`](https://github.com/johnneerdael/Airplay-2-for-Home-Assistant)
-  both target **software** AirPlay receivers (Shairport Sync), not physical AirPort Express hardware,
-  so their core logic isn't directly reusable — but their MQTT topic structure and HA discovery
-  payload shape are good conventions to match, and this project does.
+  both target **software** AirPlay receivers (Shairport Sync), not physical AirPort Express hardware.
 
 ## License
 

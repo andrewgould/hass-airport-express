@@ -1,0 +1,39 @@
+{
+  "title": "AirPort Express AirPlay activity",
+  "config": {
+    "step": {
+      "confirm": {
+        "title": "Add {name}",
+        "description": "Watch AirPlay activity on {name} ({host})? This adds one sensor that turns on while something is streaming to it."
+      },
+      "user": {
+        "title": "AirPort Express",
+        "description": "Enter the Express to watch. The IP address is used for the /info cross-check, so give it a DHCP reservation. The mDNS name is how it appears in AirPlay - matching on it survives an address change.",
+        "data": {
+          "name": "Name",
+          "host": "IP address",
+          "mdns_name": "mDNS name (optional)"
+        }
+      }
+    },
+    "error": {
+      "need_host_or_name": "Enter an IP address, an mDNS name, or both."
+    },
+    "abort": {
+      "already_configured": "This AirPort Express is already set up."
+    }
+  },
+  "options": {
+    "step": {
+      "init": {
+        "title": "AirPlay activity settings",
+        "description": "The off delay stops brief AirPlay handshake blips flapping the sensor. Keep it short: a longer 'has the music really stopped' wait belongs in your automation, where you can see it.",
+        "data": {
+          "off_delay_seconds": "Off delay (seconds)",
+          "confirm_observations": "Readings required before turning on",
+          "info_poll_seconds": "/info cross-check interval (seconds)"
+        }
+      }
+    }
+  }
+}
