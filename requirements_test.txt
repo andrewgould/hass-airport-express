@@ -1,5 +1,7 @@
 pytest-homeassistant-custom-component>=0.13.200
-homeassistant>=2024.6.0
+# helpers.service_info.zeroconf (used by the config flow) landed in 2024.12;
+# don't let a resolver pick something older and fail confusingly.
+homeassistant>=2025.2
 pytest>=8.0.0
 pytest-asyncio>=0.23.0
 zeroconf>=0.132

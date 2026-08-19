@@ -1,7 +1,7 @@
 {
   "name": "AirPort Express AirPlay activity",
   "render_readme": true,
-  "homeassistant": "2024.6.0",
+  "homeassistant": "2025.2.0",
   "zip_release": true,
   "filename": "airport_express.zip",
   "hide_default_branch": true
