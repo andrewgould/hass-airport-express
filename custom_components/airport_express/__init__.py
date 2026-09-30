@@ -5,19 +5,36 @@ so Home Assistant's Apple TV integration can only ever show it as `idle`. What
 the hardware *does* expose is a status-flags bit that flips while a stream is
 open, on its mDNS TXT records and its /info endpoint alike. This integration
 watches those and turns them into one binary_sensor.
+
+It also offers two actions, `airport_express.join` and `airport_express.unjoin`,
+that add the Express to (or take it out of) a HomePod's playback - see
+grouping.py.
 """
 
 from __future__ import annotations
 
 import asyncio
+import re
 
+import voluptuous as vol
 from homeassistant.components import zeroconf
 from homeassistant.config_entries import ConfigEntry
 from homeassistant.const import CONF_HOST, CONF_NAME
-from homeassistant.core import HomeAssistant
+from homeassistant.core import (
+    HomeAssistant,
+    ServiceCall,
+    ServiceResponse,
+    SupportsResponse,
+)
+from homeassistant.exceptions import ServiceValidationError
+from homeassistant.helpers import config_validation as cv
+from homeassistant.helpers import entity_registry as er
 from homeassistant.helpers.aiohttp_client import async_get_clientsession
 from homeassistant.helpers.dispatcher import async_dispatcher_send
+from homeassistant.helpers.service import async_extract_entity_ids
+from homeassistant.helpers.typing import ConfigType
 
+from . import grouping
 from .const import (
     CONF_CONFIRM_OBSERVATIONS,
     CONF_INFO_POLL_SECONDS,
@@ -32,6 +49,17 @@ from .const import (
 )
 from .models import DeviceConfig
 from .monitor import DeviceMonitor
+
+CONFIG_SCHEMA = cv.config_entry_only_config_schema(DOMAIN)
+
+SERVICE_JOIN = "join"
+SERVICE_UNJOIN = "unjoin"
+ATTR_LEADER = "leader"
+GROUPING_SCHEMA = cv.make_entity_service_schema({vol.Required(ATTR_LEADER): cv.entity_id})
+
+# A zeroconf-discovered entry's unique_id is the AirPlay deviceid - the MAC,
+# which is exactly what a leader groups by. A hand-added one is keyed by host.
+_MAC = re.compile(r"^[0-9A-F]{2}(:[0-9A-F]{2}){5}$")
 
 
 class AirPortExpressRuntime:
@@ -59,6 +87,19 @@ class AirPortExpressRuntime:
         )
         self.active = False
         self._tasks: list[asyncio.Task] = []
+        self._airplay_id: str | None = None
+
+    async def async_airplay_id(self) -> str:
+        """The id a HomePod uses for this Express in its list of output devices."""
+        if self._airplay_id is None:
+            unique_id = (self.entry.unique_id or "").upper()
+            if _MAC.match(unique_id):
+                self._airplay_id = unique_id
+            else:
+                self._airplay_id = await grouping.async_express_identifier(
+                    self.hass, self.device.ip or self.device.mdns_name
+                )
+        return self._airplay_id
 
     @property
     def signal(self) -> str:
@@ -88,6 +129,37 @@ class AirPortExpressRuntime:
             task.cancel()
         self._tasks.clear()
         await self.monitor.close()
+
+
+async def async_setup(hass: HomeAssistant, config: ConfigType) -> bool:
+    async def _grouping(call: ServiceCall) -> ServiceResponse:
+        registry = er.async_get(hass)
+        runtimes: dict[str, AirPortExpressRuntime] = {}
+        for entity_id in await async_extract_entity_ids(call):
+            entity = registry.async_get(entity_id)
+            if entity and entity.platform == DOMAIN and entity.config_entry_id:
+                runtime = hass.data.get(DOMAIN, {}).get(entity.config_entry_id)
+                if runtime is not None:
+                    runtimes[entity_id] = runtime
+        if not runtimes:
+            raise ServiceValidationError("Target an AirPort Express AirPlay activity entity")
+
+        act = grouping.async_join if call.service == SERVICE_JOIN else grouping.async_unjoin
+        changed = {}
+        for entity_id, runtime in runtimes.items():
+            express_id = await runtime.async_airplay_id()
+            changed[entity_id] = await act(hass, call.data[ATTR_LEADER], express_id)
+        return {"changed": changed}
+
+    for service in (SERVICE_JOIN, SERVICE_UNJOIN):
+        hass.services.async_register(
+            DOMAIN,
+            service,
+            _grouping,
+            schema=GROUPING_SCHEMA,
+            supports_response=SupportsResponse.OPTIONAL,
+        )
+    return True
 
 
 async def async_setup_entry(hass: HomeAssistant, entry: ConfigEntry) -> bool:

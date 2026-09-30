@@ -1,0 +1,119 @@
+"""Add this Express to a HomePod's (or Apple TV's) playback, and take it out again.
+
+The Express can't join anything by itself: an AirPlay receiver only plays what
+it's sent. The HomePod is the one that sends, so grouping is a request to the
+HomePod - "add this output device" - over its Media Remote Protocol, which is
+what Control Center does when you tick a second speaker. pyatv exposes that as
+`audio.add_output_devices` / `remove_output_devices`.
+
+Home Assistant's Apple TV integration doesn't offer media_player.join for these
+devices, so the leader's address and any pairing credentials are read from its
+Apple TV config entry and a short-lived connection of our own is opened for
+each call. HomePods accept it without pairing.
+"""
+
+from __future__ import annotations
+
+import asyncio
+import logging
+
+import pyatv
+from homeassistant.const import CONF_ADDRESS
+from homeassistant.core import HomeAssistant
+from homeassistant.exceptions import HomeAssistantError
+from homeassistant.helpers import entity_registry as er
+from homeassistant.helpers.aiohttp_client import async_get_clientsession
+from pyatv.const import FeatureName, FeatureState, Protocol
+
+_LOGGER = logging.getLogger(__name__)
+
+APPLE_TV_DOMAIN = "apple_tv"
+CONF_CREDENTIALS = "credentials"
+SCAN_TIMEOUT = 5
+# The HomePod reports the new group a moment after it accepts the command.
+SETTLE_SECONDS = 2
+
+
+async def async_express_identifier(hass: HomeAssistant, host: str) -> str:
+    """The Express's AirPlay device id (its MAC), which is what a leader groups by."""
+    confs = await pyatv.scan(hass.loop, hosts=[host], timeout=SCAN_TIMEOUT)
+    if not confs:
+        raise HomeAssistantError(f"AirPort Express at {host} did not answer a scan")
+    return confs[0].identifier
+
+
+async def _async_connect_leader(hass: HomeAssistant, leader_entity_id: str):
+    entity = er.async_get(hass).async_get(leader_entity_id)
+    if entity is None or entity.platform != APPLE_TV_DOMAIN or entity.config_entry_id is None:
+        raise HomeAssistantError(
+            f"{leader_entity_id} is not a media player from the Apple TV integration"
+        )
+    entry = hass.config_entries.async_get_entry(entity.config_entry_id)
+    if entry is None:
+        raise HomeAssistantError(f"No Apple TV config entry for {leader_entity_id}")
+    address = entry.data[CONF_ADDRESS]
+
+    confs = await pyatv.scan(hass.loop, hosts=[address], timeout=SCAN_TIMEOUT)
+    if not confs:
+        raise HomeAssistantError(f"{leader_entity_id} ({address}) did not answer a scan")
+    conf = confs[0]
+    for protocol, creds in entry.data.get(CONF_CREDENTIALS, {}).items():
+        if creds and conf.get_service(Protocol(int(protocol))) is not None:
+            conf.set_credentials(Protocol(int(protocol)), creds)
+
+    atv = await pyatv.connect(conf, hass.loop, session=async_get_clientsession(hass))
+    feature = atv.features.get_feature(FeatureName.AddOutputDevices)
+    if feature.state != FeatureState.Available:
+        await _async_close(atv)
+        raise HomeAssistantError(
+            f"{leader_entity_id} can't take extra speakers (AddOutputDevices is "
+            f"{feature.state.name})"
+        )
+    return atv
+
+
+async def _async_close(atv) -> None:
+    tasks = atv.close()
+    if tasks:
+        await asyncio.wait(tasks, timeout=5)
+
+
+def _members(atv) -> list[str]:
+    return [device.identifier for device in atv.audio.output_devices]
+
+
+async def async_join(hass: HomeAssistant, leader_entity_id: str, express_id: str) -> bool:
+    """Add the Express to the leader's playback. False if it was already there."""
+    atv = await _async_connect_leader(hass, leader_entity_id)
+    try:
+        if express_id in _members(atv):
+            return False
+        await atv.audio.add_output_devices(express_id)
+        await asyncio.sleep(SETTLE_SECONDS)
+        if express_id not in _members(atv):
+            raise HomeAssistantError(
+                f"{leader_entity_id} accepted the request but its outputs are still "
+                f"{[d.name for d in atv.audio.output_devices]}"
+            )
+        _LOGGER.debug("Added %s to %s", express_id, leader_entity_id)
+        return True
+    finally:
+        await _async_close(atv)
+
+
+async def async_unjoin(hass: HomeAssistant, leader_entity_id: str, express_id: str) -> bool:
+    """Take the Express out of the leader's playback. False if it wasn't in it."""
+    atv = await _async_connect_leader(hass, leader_entity_id)
+    try:
+        if express_id not in _members(atv):
+            return False
+        await atv.audio.remove_output_devices(express_id)
+        await asyncio.sleep(SETTLE_SECONDS)
+        if express_id in _members(atv):
+            raise HomeAssistantError(
+                f"{leader_entity_id} accepted the request but still lists the Express"
+            )
+        _LOGGER.debug("Removed %s from %s", express_id, leader_entity_id)
+        return True
+    finally:
+        await _async_close(atv)

@@ -24,12 +24,14 @@ the one boolean that automations actually need.
 - Raw per-source flag values as attributes (`airplay_flags`, `raop_flags`, `info_flags`), because
   when the sources disagree you want to see which said what
 - Zeroconf discovery: an Express on the network is offered to you, no YAML
+- **`airport_express.join` / `airport_express.unjoin`** actions that add the Express to a HomePod's
+  (or Apple TV's) playback and take it out again — see [Grouping](#grouping-with-a-homepod)
 
 **Non-goals**, all of them hardware limits rather than missing features:
 
 - Play/pause distinction *within* a session — the flag is identical either way
 - Track metadata, artwork, or position
-- Playback control
+- Playback control of the Express itself (grouping works by asking the *HomePod*, below)
 
 ## How it works
 
@@ -89,6 +91,32 @@ triggers:
     to: "off"
     for: "00:00:30"
 ```
+
+## Grouping with a HomePod
+
+An Express only plays what it's sent, so "share the kitchen music with the courtyard" is a request
+to the **HomePod**: add this speaker to your outputs, exactly as ticking a second speaker in Control
+Center does. HomePods accept that over their Media Remote Protocol with no pairing, and
+[`pyatv`](https://pyatv.dev) exposes it as `add_output_devices` / `remove_output_devices`. Home
+Assistant's Apple TV integration doesn't offer `media_player.join` for HomePods, so this integration
+does it: the leader's address (and any credentials) come from its Apple TV config entry, and each
+call opens a short connection of its own.
+
+```yaml
+actions:
+  - action: airport_express.join        # or airport_express.unjoin
+    target:
+      entity_id: binary_sensor.court_yard_airplay_active
+    data:
+      leader: media_player.kitchen_homepod
+```
+
+Both are idempotent, check the HomePod's output list afterwards, and raise if the HomePod accepted
+the request but didn't act on it. With `response_variable` they return
+`{"changed": {"<entity_id>": true|false}}` — `false` meaning it was already in (or out of) the group.
+
+**Take it out when you're done.** The HomePod remembers the group, so an Express left in it will
+play the next thing the HomePod plays, hours later.
 
 ## Installation
 

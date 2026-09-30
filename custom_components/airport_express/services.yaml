@@ -1,0 +1,24 @@
+join:
+  target:
+    entity:
+      integration: airport_express
+  fields:
+    leader:
+      required: true
+      example: media_player.kitchen_homepod
+      selector:
+        entity:
+          integration: apple_tv
+          domain: media_player
+unjoin:
+  target:
+    entity:
+      integration: airport_express
+  fields:
+    leader:
+      required: true
+      example: media_player.kitchen_homepod
+      selector:
+        entity:
+          integration: apple_tv
+          domain: media_player

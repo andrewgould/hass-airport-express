@@ -35,5 +35,27 @@
         }
       }
     }
+  },
+  "services": {
+    "join": {
+      "name": "Join playback",
+      "description": "Add this AirPort Express to what a HomePod or Apple TV is playing, as if you'd ticked it as a second speaker in Control Center. Does nothing if it's already in the group.",
+      "fields": {
+        "leader": {
+          "name": "Leader",
+          "description": "The HomePod or Apple TV (from the Apple TV integration) whose playback to join."
+        }
+      }
+    },
+    "unjoin": {
+      "name": "Leave playback",
+      "description": "Take this AirPort Express out of a HomePod or Apple TV's playback. Does nothing if it isn't in the group.",
+      "fields": {
+        "leader": {
+          "name": "Leader",
+          "description": "The HomePod or Apple TV it was added to."
+        }
+      }
+    }
   }
 }

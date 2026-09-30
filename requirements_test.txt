@@ -5,3 +5,4 @@ homeassistant>=2025.2
 pytest>=8.0.0
 pytest-asyncio>=0.23.0
 zeroconf>=0.132
+pyatv>=0.14.0
