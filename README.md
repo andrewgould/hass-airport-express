@@ -115,8 +115,15 @@ Both are idempotent, check the HomePod's output list afterwards, and raise if th
 the request but didn't act on it. With `response_variable` they return
 `{"changed": {"<entity_id>": true|false}}` — `false` meaning it was already in (or out of) the group.
 
-**Take it out when you're done.** The HomePod remembers the group, so an Express left in it will
-play the next thing the HomePod plays, hours later.
+Worth knowing:
+
+- **Take it out when you're done.** The HomePod remembers the group, so an Express left in it will
+  play the next thing the HomePod plays, hours later.
+- A HomePod counts as an Apple sender: once grouped, the Express's streaming bit goes on
+  (`0x804`) and `binary_sensor.<name>_airplay_active` turns on, so an amplifier automation on it
+  follows. Verified 2026-09-30 with the Kitchen HomePod playing Apple Music.
+- While the leader is playing it takes about **5 seconds** to list the new speaker, because it
+  opens a stream to it first. The actions wait up to 20s for the list to agree.
 
 ## Installation
 

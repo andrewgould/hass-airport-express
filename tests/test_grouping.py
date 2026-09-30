@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import asyncio
 from types import SimpleNamespace
 from unittest.mock import AsyncMock, MagicMock, patch
 
@@ -62,9 +63,23 @@ def fake_pyatv(homepod):
               new=AsyncMock(return_value=[conf])) as scan,
         patch("custom_components.airport_express.grouping.pyatv.connect",
               new=AsyncMock(return_value=homepod)),
-        patch("custom_components.airport_express.grouping.SETTLE_SECONDS", 0),
+        patch("custom_components.airport_express.grouping.SETTLE_SECONDS", 0.05),
+        patch("custom_components.airport_express.grouping.SETTLE_POLL", 0.01),
     ):
         yield SimpleNamespace(scan=scan, conf=conf)
+
+
+async def test_join_waits_for_a_slow_leader(hass, stub_monitor, fake_pyatv, homepod):  # noqa: F811
+    """Playing, the HomePod lists the new speaker ~5s after accepting it."""
+    async def slow_add(*ids):
+        async def later():
+            await asyncio.sleep(0.02)
+            homepod.audio.output_devices = [KITCHEN, EXPRESS]
+        asyncio.get_running_loop().create_task(later())
+
+    homepod.audio.add_output_devices.side_effect = slow_add
+    entity_id = await _setup(hass)
+    assert await _call(hass, "join", entity_id) == {"changed": {entity_id: True}}
 
 
 async def _setup(hass, unique_id=EXPRESS_ID):

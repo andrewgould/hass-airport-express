@@ -30,8 +30,11 @@ _LOGGER = logging.getLogger(__name__)
 APPLE_TV_DOMAIN = "apple_tv"
 CONF_CREDENTIALS = "credentials"
 SCAN_TIMEOUT = 5
-# The HomePod reports the new group a moment after it accepts the command.
-SETTLE_SECONDS = 2
+# The HomePod reports the new group some time after it accepts the command:
+# about 5s while it is playing, since it has to open a stream to the Express
+# first. Wait up to this long for its output list to agree.
+SETTLE_SECONDS = 20
+SETTLE_POLL = 0.5
 
 
 async def async_express_identifier(hass: HomeAssistant, host: str) -> str:
@@ -82,6 +85,17 @@ def _members(atv) -> list[str]:
     return [device.identifier for device in atv.audio.output_devices]
 
 
+async def _async_settle(atv, express_id: str, present: bool) -> bool:
+    """Wait for the leader's output list to show the Express in (or out of) it."""
+    loop = asyncio.get_running_loop()
+    deadline = loop.time() + SETTLE_SECONDS
+    while (express_id in _members(atv)) != present:
+        if loop.time() >= deadline:
+            return False
+        await asyncio.sleep(SETTLE_POLL)
+    return True
+
+
 async def async_join(hass: HomeAssistant, leader_entity_id: str, express_id: str) -> bool:
     """Add the Express to the leader's playback. False if it was already there."""
     atv = await _async_connect_leader(hass, leader_entity_id)
@@ -89,11 +103,10 @@ async def async_join(hass: HomeAssistant, leader_entity_id: str, express_id: str
         if express_id in _members(atv):
             return False
         await atv.audio.add_output_devices(express_id)
-        await asyncio.sleep(SETTLE_SECONDS)
-        if express_id not in _members(atv):
+        if not await _async_settle(atv, express_id, present=True):
             raise HomeAssistantError(
-                f"{leader_entity_id} accepted the request but its outputs are still "
-                f"{[d.name for d in atv.audio.output_devices]}"
+                f"{leader_entity_id} accepted the request but after {SETTLE_SECONDS}s its "
+                f"outputs are still {[d.name for d in atv.audio.output_devices]}"
             )
         _LOGGER.debug("Added %s to %s", express_id, leader_entity_id)
         return True
@@ -108,10 +121,10 @@ async def async_unjoin(hass: HomeAssistant, leader_entity_id: str, express_id: s
         if express_id not in _members(atv):
             return False
         await atv.audio.remove_output_devices(express_id)
-        await asyncio.sleep(SETTLE_SECONDS)
-        if express_id in _members(atv):
+        if not await _async_settle(atv, express_id, present=False):
             raise HomeAssistantError(
-                f"{leader_entity_id} accepted the request but still lists the Express"
+                f"{leader_entity_id} accepted the request but after {SETTLE_SECONDS}s "
+                "still lists the Express"
             )
         _LOGGER.debug("Removed %s from %s", express_id, leader_entity_id)
         return True
