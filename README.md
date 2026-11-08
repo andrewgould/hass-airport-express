@@ -1,4 +1,10 @@
-# hass-airport-express
+<img src="custom_components/airport_express/brand/icon@2x.png" alt="" width="96" align="right">
+
+# AirPort Express AirPlay activity for Home Assistant
+
+[![CI](https://github.com/andrewgould/hass-airport-express/actions/workflows/ci.yml/badge.svg)](https://github.com/andrewgould/hass-airport-express/actions/workflows/ci.yml)
+[![Release](https://img.shields.io/github/v/release/andrewgould/hass-airport-express)](https://github.com/andrewgould/hass-airport-express/releases)
+[![HACS Custom](https://img.shields.io/badge/HACS-Custom-41BDF5.svg)](https://hacs.xyz)
 
 > Home Assistant custom integration: **is something AirPlaying to this AirPort Express right now?**
 
@@ -148,14 +154,35 @@ Worth knowing:
 - While the leader is playing it takes about **5 seconds** to list the new speaker, because it
   opens a stream to it first. The actions wait up to 20s for the list to agree.
 
-## Installation
+## Install
 
-**HACS → ⋮ → Custom repositories**, add `https://github.com/andrewgould/hass-airport-express` as an
-**Integration**, download it, and restart Home Assistant. Your Express should then appear under
-**Settings → Devices & services** as a discovered device; if it doesn't, **Add integration →
-AirPort Express** and enter its IP.
+Through [HACS](https://hacs.xyz), as a custom repository:
 
-Give the Express a DHCP reservation — the `/info` cross-check is addressed by IP.
+[![Open in HACS](https://my.home-assistant.io/badges/hacs_repository.svg)](https://my.home-assistant.io/redirect/hacs_repository/?owner=andrewgould&repository=hass-airport-express&category=integration)
+
+Or in HACS, **⋮ → Custom repositories**, add
+`https://github.com/andrewgould/hass-airport-express` as an **Integration**, then download
+**AirPort Express AirPlay activity** and restart Home Assistant.
+
+Without HACS, unzip `airport_express.zip` from the
+[latest release](https://github.com/andrewgould/hass-airport-express/releases/latest) into
+`custom_components/airport_express` and restart.
+
+Needs Home Assistant 2025.2 or later. The icon shows from 2026.3, which reads it from the
+integration's own `brand/` folder.
+
+## Setup
+
+Your Express should appear under **Settings → Devices & services** as a discovered device. If it
+doesn't, choose **Add integration → AirPort Express AirPlay activity** and enter its IP address.
+
+Give the Express a DHCP reservation, because the `/info` cross-check is addressed by IP.
+
+The options (**Configure** on the integration) set the off delay, how many matching readings
+confirm a change, and how often `/info` is polled. The defaults suit a gen-2 Express.
+
+To group the Express (or a HomePod) with a HomePod, the HomePod must already be set up in Home
+Assistant's **Apple TV** integration. No extra pairing is needed.
 
 ## Development
 
@@ -168,6 +195,22 @@ pytest -q
 `state.py` and `monitor.py` are deliberately free of Home Assistant imports, so the decision function
 and the debouncer are testable as plain Python with no `hass` fixture. `__init__.py`,
 `config_flow.py` and `binary_sensor.py` are the Home Assistant glue.
+
+## Releasing
+
+Bump `version` in `manifest.json`, add a matching `## X.Y.Z` section to `CHANGELOG.md` saying what
+changed and why it matters, then tag and push:
+
+```
+git tag vX.Y.Z && git push origin vX.Y.Z
+```
+
+The Release workflow checks the tag against the manifest, runs the tests, builds
+`airport_express.zip` and publishes the release with that changelog section as its notes. It
+refuses to publish a version with no changelog section. HACS installs from the zip.
+
+The icon is drawn by `assets/make_icons.py`, which writes the PNGs into the integration's `brand/`
+folder.
 
 ## History: this used to be an MQTT sidecar
 
