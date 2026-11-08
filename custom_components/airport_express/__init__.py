@@ -7,8 +7,8 @@ open, on its mDNS TXT records and its /info endpoint alike. This integration
 watches those and turns them into one binary_sensor.
 
 It also offers two actions, `airport_express.join` and `airport_express.unjoin`,
-that add the Express to (or take it out of) a HomePod's playback - see
-grouping.py.
+that add the Express - or another HomePod - to (or take it out of) a HomePod's
+playback - see grouping.py.
 """
 
 from __future__ import annotations
@@ -134,21 +134,34 @@ class AirPortExpressRuntime:
 async def async_setup(hass: HomeAssistant, config: ConfigType) -> bool:
     async def _grouping(call: ServiceCall) -> ServiceResponse:
         registry = er.async_get(hass)
-        runtimes: dict[str, AirPortExpressRuntime] = {}
+        leader = call.data[ATTR_LEADER]
+        speakers = {}
         for entity_id in await async_extract_entity_ids(call):
             entity = registry.async_get(entity_id)
-            if entity and entity.platform == DOMAIN and entity.config_entry_id:
+            if entity is None or entity.config_entry_id is None:
+                continue
+            if entity.platform == DOMAIN:
                 runtime = hass.data.get(DOMAIN, {}).get(entity.config_entry_id)
                 if runtime is not None:
-                    runtimes[entity_id] = runtime
-        if not runtimes:
-            raise ServiceValidationError("Target an AirPort Express AirPlay activity entity")
+                    speakers[entity_id] = runtime.async_airplay_id
+            elif (
+                entity.platform == grouping.APPLE_TV_DOMAIN
+                and entity.domain == "media_player"
+                and entity_id != leader
+            ):
+                speakers[entity_id] = (
+                    lambda e=entity_id: grouping.async_homepod_identifier(hass, e)
+                )
+        if not speakers:
+            raise ServiceValidationError(
+                "Target an AirPort Express AirPlay activity entity, or a HomePod or "
+                "Apple TV media player other than the leader"
+            )
 
         act = grouping.async_join if call.service == SERVICE_JOIN else grouping.async_unjoin
         changed = {}
-        for entity_id, runtime in runtimes.items():
-            express_id = await runtime.async_airplay_id()
-            changed[entity_id] = await act(hass, call.data[ATTR_LEADER], express_id)
+        for entity_id, airplay_id in speakers.items():
+            changed[entity_id] = await act(hass, leader, await airplay_id())
         return {"changed": changed}
 
     for service in (SERVICE_JOIN, SERVICE_UNJOIN):

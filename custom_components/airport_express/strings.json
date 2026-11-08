@@ -39,7 +39,7 @@
   "services": {
     "join": {
       "name": "Join playback",
-      "description": "Add this AirPort Express to what a HomePod or Apple TV is playing, as if you'd ticked it as a second speaker in Control Center. Does nothing if it's already in the group.",
+      "description": "Add this AirPort Express, or another HomePod, to what a HomePod or Apple TV is playing, as if you'd ticked it as a second speaker in Control Center. Does nothing if it's already in the group.",
       "fields": {
         "leader": {
           "name": "Leader",
@@ -49,7 +49,7 @@
     },
     "unjoin": {
       "name": "Leave playback",
-      "description": "Take this AirPort Express out of a HomePod or Apple TV's playback. Does nothing if it isn't in the group.",
+      "description": "Take this AirPort Express, or another HomePod, out of a HomePod or Apple TV's playback. Does nothing if it isn't in the group.",
       "fields": {
         "leader": {
           "name": "Leader",

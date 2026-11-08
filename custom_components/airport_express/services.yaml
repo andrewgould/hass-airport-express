@@ -1,7 +1,9 @@
 join:
   target:
     entity:
-      integration: airport_express
+      - integration: airport_express
+      - integration: apple_tv
+        domain: media_player
   fields:
     leader:
       required: true
@@ -13,7 +15,9 @@ join:
 unjoin:
   target:
     entity:
-      integration: airport_express
+      - integration: airport_express
+      - integration: apple_tv
+        domain: media_player
   fields:
     leader:
       required: true

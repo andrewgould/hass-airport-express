@@ -24,8 +24,9 @@ the one boolean that automations actually need.
 - Raw per-source flag values as attributes (`airplay_flags`, `raop_flags`, `info_flags`), because
   when the sources disagree you want to see which said what
 - Zeroconf discovery: an Express on the network is offered to you, no YAML
-- **`airport_express.join` / `airport_express.unjoin`** actions that add the Express to a HomePod's
-  (or Apple TV's) playback and take it out again — see [Grouping](#grouping-with-a-homepod)
+- **`airport_express.join` / `airport_express.unjoin`** actions that add the Express (or, since
+  1.2.0, another HomePod) to a HomePod's (or Apple TV's) playback and take it out again — see
+  [Grouping](#grouping-with-a-homepod)
 
 **Non-goals**, all of them hardware limits rather than missing features:
 
@@ -110,6 +111,28 @@ actions:
     data:
       leader: media_player.kitchen_homepod
 ```
+
+### Grouping two HomePods
+
+Since 1.2.0 the target can also be a HomePod (or Apple TV) media player from the Apple TV
+integration, so the same actions put the bedroom into the kitchen's music:
+
+```yaml
+actions:
+  - action: airport_express.join
+    target:
+      entity_id: media_player.bedroom_homepod
+    data:
+      leader: media_player.kitchen_homepod
+```
+
+A leader lists a HomePod among its outputs by the `psi` in that HomePod's AirPlay TXT record (a
+UUID beginning with roughly its MAC), not by its AirPlay device id, so that's what is sent. The
+leader can't be its own target. Measured 2026-11-08 with the Kitchen HomePod playing Apple Music:
+the Bedroom HomePod mini was listed 2.2s after the request and gone 2.5s after removal, with the
+kitchen playing throughout.
+
+### Behaviour
 
 Both are idempotent, check the HomePod's output list afterwards, and raise if the HomePod accepted
 the request but didn't act on it. With `response_variable` they return

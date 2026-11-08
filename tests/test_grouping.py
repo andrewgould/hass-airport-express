@@ -174,9 +174,69 @@ async def test_leader_must_be_an_apple_tv_entity(hass, stub_monitor, fake_pyatv)
         )
 
 
-async def test_target_must_be_an_express(hass, stub_monitor, fake_pyatv):  # noqa: F811
+async def test_leader_cannot_join_itself(hass, stub_monitor, fake_pyatv):  # noqa: F811
     await _setup(hass)
     with pytest.raises(ServiceValidationError):
         await hass.services.async_call(
             DOMAIN, "join", {"entity_id": LEADER, "leader": LEADER}, blocking=True,
         )
+
+
+BEDROOM_PSI = "1E483618-ED2C-4A58-97D5-2C57ED0882A7"
+BEDROOM = SimpleNamespace(name="Bedroom", identifier=BEDROOM_PSI)
+BEDROOM_ENTITY = "media_player.bedroom_homepod"
+
+
+def _add_bedroom(hass):
+    entry = MockConfigEntry(
+        domain="apple_tv", data={"address": "192.168.1.162", "credentials": {}}
+    )
+    entry.add_to_hass(hass)
+    er.async_get(hass).async_get_or_create(
+        "media_player", "apple_tv", "bedroom", config_entry=entry,
+        suggested_object_id="bedroom_homepod",
+    )
+
+
+def _bedroom_scans_with_psi(fake_pyatv, homepod):
+    """The Bedroom HomePod is listed by its AirPlay psi, not its MAC."""
+    fake_pyatv.conf.get_service.return_value = SimpleNamespace(properties={"psi": BEDROOM_PSI})
+
+    async def add(*ids):
+        homepod.audio.output_devices += [BEDROOM for i in ids if i == BEDROOM_PSI]
+
+    homepod.audio.add_output_devices.side_effect = add
+
+
+async def test_join_adds_another_homepod_by_its_psi(hass, stub_monitor, fake_pyatv, homepod):  # noqa: F811
+    await _setup(hass)
+    _add_bedroom(hass)
+    _bedroom_scans_with_psi(fake_pyatv, homepod)
+    response = await _call(hass, "join", BEDROOM_ENTITY)
+    assert response == {"changed": {BEDROOM_ENTITY: True}}
+    homepod.audio.add_output_devices.assert_awaited_once_with(BEDROOM_PSI)
+    hosts = [c.kwargs["hosts"] for c in fake_pyatv.scan.await_args_list]
+    assert ["192.168.1.162"] in hosts
+
+
+async def test_unjoin_removes_another_homepod(hass, stub_monitor, fake_pyatv, homepod):  # noqa: F811
+    await _setup(hass)
+    _add_bedroom(hass)
+    _bedroom_scans_with_psi(fake_pyatv, homepod)
+    homepod.audio.output_devices = [KITCHEN, BEDROOM]
+    assert await _call(hass, "unjoin", BEDROOM_ENTITY) == {"changed": {BEDROOM_ENTITY: True}}
+    homepod.audio.remove_output_devices.assert_awaited_once_with(BEDROOM_PSI)
+    assert homepod.audio.output_devices == [KITCHEN]
+
+
+async def test_homepod_without_psi_falls_back_to_its_device_id(
+    hass, stub_monitor, fake_pyatv, homepod  # noqa: F811
+):
+    await _setup(hass)
+    _add_bedroom(hass)
+    fake_pyatv.conf.get_service.return_value = None
+    fake_pyatv.conf.identifier = "1E:48:36:18:ED:2C"
+    homepod._obeys = False
+    with pytest.raises(HomeAssistantError, match="still"):
+        await _call(hass, "join", BEDROOM_ENTITY)
+    homepod.audio.add_output_devices.assert_awaited_once_with("1E:48:36:18:ED:2C")
